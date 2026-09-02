@@ -1,0 +1,21 @@
+---
+galaxy_info:
+  author: SDNit
+  namespace: sdnit
+  role_name: tailscale
+  description: Install Tailscale and enroll the host with a tag-scoped credential.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+  galaxy_tags:
+    - networking
+    - tailscale
+
+dependencies: []

@@ -1,0 +1,139 @@
+---
+- name: Read the Tailscale backend state
+  ansible.builtin.command:
+    argv: [tailscale, status, --json]
+  register: tailscale_status_raw
+  changed_when: false
+  failed_when: tailscale_status_raw.rc not in [0, 1]
+
+- name: Read the current preferences
+  ansible.builtin.command:
+    argv: [tailscale, debug, prefs]
+  register: tailscale_prefs_raw
+  changed_when: false
+
+- name: Parse status and preferences
+  ansible.builtin.set_fact:
+    tailscale_backend_state: "{{ (tailscale_status_raw.stdout | from_json).BackendState }}"
+    tailscale_current_prefs: "{{ tailscale_prefs_raw.stdout | from_json }}"
+
+- name: Derive the current and desired node configuration
+  ansible.builtin.set_fact:
+    # `tailscale debug prefs` reports null for unset lists.
+    tailscale_current_tags: "{{ tailscale_current_prefs.AdvertiseTags | default([], true) }}"
+    tailscale_desired_routes: >-
+      {{
+        (tailscale_advertise_routes
+         + (['0.0.0.0/0', '::/0'] if tailscale_advertise_exit_node | bool else []))
+        | sort
+      }}
+
+# Tags live on the node key, so changing them means re-authenticating.
+- name: Decide whether the node must (re)authenticate
+  ansible.builtin.set_fact:
+    tailscale_needs_auth: >-
+      {{
+        tailscale_backend_state != 'Running'
+        or (tailscale_tags | sort) != (tailscale_current_tags | sort)
+      }}
+
+- name: Resolve the enrollment credential
+  when: tailscale_needs_auth | bool
+  block:
+    - name: Read the credential from AWS Secrets Manager
+      when:
+        - tailscale_auth_key | length == 0
+        - tailscale_aws_secret_id | length > 0
+      ansible.builtin.command:
+        argv: >-
+          {{
+            [tailscale_aws_cli, 'secretsmanager', 'get-secret-value',
+             '--secret-id', tailscale_aws_secret_id,
+             '--query', 'SecretString', '--output', 'text']
+            + (['--region', tailscale_aws_region] if tailscale_aws_region | length > 0 else [])
+          }}
+      register: tailscale_secret_raw
+      changed_when: false
+      no_log: true
+
+    - name: Select the credential
+      ansible.builtin.set_fact:
+        tailscale_resolved_key: >-
+          {{
+            tailscale_auth_key
+            if tailscale_auth_key | length > 0
+            else (tailscale_secret_raw.stdout | from_json)[tailscale_aws_secret_json_key]
+            if tailscale_aws_secret_id | length > 0
+            else ''
+          }}
+      no_log: true
+
+    - name: Assert a credential is available
+      ansible.builtin.assert:
+        that:
+          - tailscale_resolved_key | length > 0
+        fail_msg: >-
+          The node is {{ tailscale_backend_state }} with tags {{ tailscale_current_tags }}
+          (wanted {{ tailscale_tags }}) and neither tailscale_auth_key nor tailscale_aws_secret_id yielded a credential.
+        quiet: true
+
+    - name: Append OAuth auth-key parameters when the credential is an OAuth client secret
+      ansible.builtin.set_fact:
+        tailscale_resolved_key: "{{ tailscale_resolved_key }}?{{ tailscale_oauth_key_params }}"
+      when:
+        - tailscale_resolved_key is match('^tskey-client-')
+        - "'?' not in tailscale_resolved_key"
+        - tailscale_oauth_key_params | length > 0
+      no_log: true
+
+- name: Authenticate to the tailnet
+  when: tailscale_needs_auth | bool
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['tailscale', 'up',
+         '--auth-key=' ~ tailscale_resolved_key,
+         '--hostname=' ~ tailscale_hostname,
+         '--ssh=' ~ (tailscale_ssh | bool | string | lower),
+         '--accept-dns=' ~ (tailscale_accept_dns | bool | string | lower),
+         '--advertise-exit-node=' ~ (tailscale_advertise_exit_node | bool | string | lower),
+         '--advertise-routes=' ~ (tailscale_advertise_routes | join(',')),
+         '--advertise-tags=' ~ (tailscale_tags | join(','))]
+        + (['--force-reauth'] if tailscale_backend_state == 'Running' else [])
+        + tailscale_extra_up_args
+      }}
+  changed_when: true
+  no_log: true
+
+# Everything else is reconciled with `tailscale set`.
+- name: Decide whether preferences drifted
+  ansible.builtin.set_fact:
+    tailscale_prefs_drifted: >-
+      {{
+        tailscale_needs_auth | bool
+        or tailscale_current_prefs.Hostname | default('') != tailscale_hostname
+        or (tailscale_current_prefs.RunSSH | default(false) | bool) != (tailscale_ssh | bool)
+        or (tailscale_current_prefs.CorpDNS | default(true) | bool) != (tailscale_accept_dns | bool)
+        or (tailscale_current_prefs.AdvertiseRoutes | default([], true) | sort) != tailscale_desired_routes
+      }}
+
+- name: Reconcile node preferences
+  when: tailscale_prefs_drifted | bool
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - set
+      - "--hostname={{ tailscale_hostname }}"
+      - "--ssh={{ tailscale_ssh | bool | string | lower }}"
+      - "--accept-dns={{ tailscale_accept_dns | bool | string | lower }}"
+      - "--advertise-exit-node={{ tailscale_advertise_exit_node | bool | string | lower }}"
+      - "--advertise-routes={{ tailscale_advertise_routes | join(',') }}"
+  changed_when: true
+
+- name: Set automatic client updates
+  ansible.builtin.command:
+    argv: [tailscale, set, "--auto-update={{ tailscale_auto_update | bool | string | lower }}"]
+  when: >-
+    (tailscale_current_prefs.AutoUpdate.Apply | default('', true) | string | lower == 'true')
+    != (tailscale_auto_update | bool)
+  changed_when: true

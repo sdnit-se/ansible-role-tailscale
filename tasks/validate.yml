@@ -1,0 +1,22 @@
+---
+- name: Read the Tailscale status
+  ansible.builtin.command:
+    argv: [tailscale, status, --json]
+  register: tailscale_validate_raw
+  changed_when: false
+
+- name: Parse the status
+  ansible.builtin.set_fact:
+    tailscale_validate_status: "{{ tailscale_validate_raw.stdout | from_json }}"
+
+- name: Assert the node is running with the expected identity
+  ansible.builtin.assert:
+    that:
+      - tailscale_validate_status.BackendState == 'Running'
+      - tailscale_validate_status.Self.TailscaleIPs | length > 0
+      - tailscale_tags | difference(tailscale_validate_status.Self.Tags | default([], true)) | length == 0
+    fail_msg: >-
+      Tailscale is {{ tailscale_validate_status.BackendState }} with tags
+      {{ tailscale_validate_status.Self.Tags | default([], true) }}; expected Running with {{ tailscale_tags }}.
+      Tags are re-applied with --force-reauth when they differ; check the enrollment credential if this persists.
+    quiet: true

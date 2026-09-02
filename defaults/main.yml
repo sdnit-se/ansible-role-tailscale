@@ -1,0 +1,33 @@
+---
+# Package source: https://pkgs.tailscale.com/<track>/<distribution>/<codename>
+tailscale_apt_track: stable
+tailscale_apt_distribution: "{{ ansible_facts['distribution'] | lower }}"
+tailscale_apt_codename: "{{ ansible_facts['distribution_release'] }}"
+tailscale_apt_keyring: /usr/share/keyrings/tailscale-archive-keyring.gpg
+tailscale_package_state: present
+
+# Node identity. Tags must be listed in the tailnet policy's tagOwners.
+tailscale_hostname: "{{ ansible_facts['hostname'] }}"
+tailscale_tags: []
+
+# Credential, one of:
+#   tailscale_auth_key        a literal auth key or OAuth client secret
+#   tailscale_aws_secret_id   a Secrets Manager secret whose JSON holds the key
+# JSON shape: {"authKey": "..."}.
+tailscale_auth_key: ""
+tailscale_aws_secret_id: ""
+tailscale_aws_secret_json_key: authKey
+tailscale_aws_region: ""
+tailscale_aws_cli: aws
+
+# OAuth client secrets need these parameters to act as auth keys.
+tailscale_oauth_key_params: "ephemeral=false&preauthorized=true"
+
+# `tailscale up` options.
+tailscale_ssh: false
+tailscale_accept_dns: true
+tailscale_advertise_routes: []
+tailscale_advertise_exit_node: false
+tailscale_extra_up_args: []
+
+tailscale_auto_update: true

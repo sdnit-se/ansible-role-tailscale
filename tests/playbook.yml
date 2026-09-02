@@ -1,0 +1,9 @@
+---
+- name: Syntax-check fixture
+  hosts: all
+  become: true
+  roles:
+    - role: tailscale
+      vars:
+        tailscale_tags: ["tag:server"]
+        tailscale_auth_key: tskey-auth-example
