@@ -11,6 +11,11 @@ description = "yamllint, ansible-lint, syntax check, actionlint"
 shell = "bash -c"
 run = """
 set -euo pipefail
+# Expose this checkout as role "tailscale" without a symlink in the tree
+# (consumers install the whole repo, and symlinks break archive builds).
+roles="$(mktemp -d)"; trap 'rm -rf "$roles"' EXIT
+ln -s "$PWD" "$roles/tailscale"
+export ANSIBLE_ROLES_PATH="$roles"
 yamllint .
 ansible-lint
 ansible-playbook --syntax-check -i localhost, tests/playbook.yml
