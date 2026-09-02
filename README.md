@@ -24,7 +24,7 @@ roles:
   - name: tailscale
     src: https://github.com/sdnit-se/ansible-role-tailscale.git
     scm: git
-    version: v0.1.0
+    version: v0.1.1
 ```
 
 ```yaml
