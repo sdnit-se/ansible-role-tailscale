@@ -9,12 +9,11 @@
   ansible.builtin.apt:
     name:
       - ca-certificates
-      - curl
-      - jq
       - python3-debian # required by ansible.builtin.deb822_repository
     state: present
     update_cache: true
     cache_valid_time: 3600
+  when: not tailscale_dry_run | bool
 
 - name: Install the Tailscale package signing key
   ansible.builtin.get_url:
@@ -23,6 +22,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: not tailscale_dry_run | bool
 
 - name: Configure the Tailscale apt repository
   ansible.builtin.deb822_repository:
@@ -33,15 +33,18 @@
     components: [main]
     signed_by: "{{ tailscale_apt_keyring }}"
     state: present
+  when: not tailscale_dry_run | bool
 
 - name: Install the tailscale package
   ansible.builtin.apt:
     name: tailscale
     state: "{{ tailscale_package_state }}"
     update_cache: true
+  when: not tailscale_dry_run | bool
 
 - name: Enable and start tailscaled
   ansible.builtin.systemd_service:
     name: tailscaled
     enabled: true
     state: started
+  when: not tailscale_dry_run | bool

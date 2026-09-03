@@ -44,61 +44,41 @@
       {{
         'key' if tailscale_auth_key | length > 0
         else 'federated' if tailscale_federated_client_id | length > 0
-        else 'aws-secret' if tailscale_aws_secret_id | length > 0
         else 'none'
       }}
 
-- name: Resolve the enrollment credential
+- name: Assert a credential is available
+  when: tailscale_needs_auth | bool
+  ansible.builtin.assert:
+    that:
+      - tailscale_credential_mode != 'none'
+    fail_msg: >-
+      The node is {{ tailscale_backend_state }} with tags {{ tailscale_current_tags }}
+      (wanted {{ tailscale_tags }}) and neither tailscale_auth_key nor tailscale_federated_client_id is set.
+    quiet: true
+
+- name: Append OAuth auth-key parameters when the credential is an OAuth client secret
+  ansible.builtin.set_fact:
+    tailscale_resolved_key: "{{ tailscale_auth_key }}?{{ tailscale_oauth_key_params }}"
   when:
-    - tailscale_needs_auth | bool
-    - tailscale_credential_mode != 'federated'
-  block:
-    - name: Read the credential from AWS Secrets Manager
-      when: tailscale_credential_mode == 'aws-secret'
-      ansible.builtin.command:
-        argv: >-
-          {{
-            [tailscale_aws_cli, 'secretsmanager', 'get-secret-value',
-             '--secret-id', tailscale_aws_secret_id,
-             '--query', 'SecretString', '--output', 'text']
-            + (['--region', tailscale_aws_region] if tailscale_aws_region | length > 0 else [])
-          }}
-      register: tailscale_secret_raw
-      changed_when: false
-      no_log: true
+    - tailscale_credential_mode == 'key'
+    - tailscale_auth_key is match('^tskey-client-')
+    - "'?' not in tailscale_auth_key"
+    - tailscale_oauth_key_params | length > 0
+  no_log: true
 
-    - name: Select the credential
-      ansible.builtin.set_fact:
-        tailscale_resolved_key: >-
-          {{
-            tailscale_auth_key
-            if tailscale_credential_mode == 'key'
-            else (tailscale_secret_raw.stdout | from_json)[tailscale_aws_secret_json_key]
-            if tailscale_credential_mode == 'aws-secret'
-            else ''
-          }}
-      no_log: true
-
-    - name: Assert a credential is available
-      ansible.builtin.assert:
-        that:
-          - tailscale_resolved_key | length > 0
-        fail_msg: >-
-          The node is {{ tailscale_backend_state }} with tags {{ tailscale_current_tags }}
-          (wanted {{ tailscale_tags }}) and no credential is configured.
-        quiet: true
-
-    - name: Append OAuth auth-key parameters when the credential is an OAuth client secret
-      ansible.builtin.set_fact:
-        tailscale_resolved_key: "{{ tailscale_resolved_key }}?{{ tailscale_oauth_key_params }}"
-      when:
-        - tailscale_resolved_key is match('^tskey-client-')
-        - "'?' not in tailscale_resolved_key"
-        - tailscale_oauth_key_params | length > 0
-      no_log: true
+- name: Use the literal credential as is
+  ansible.builtin.set_fact:
+    tailscale_resolved_key: "{{ tailscale_auth_key }}"
+  when:
+    - tailscale_credential_mode == 'key'
+    - tailscale_resolved_key is not defined
+  no_log: true
 
 - name: Authenticate to the tailnet
-  when: tailscale_needs_auth | bool
+  when:
+    - tailscale_needs_auth | bool
+    - not tailscale_dry_run | bool
   ansible.builtin.command:
     argv: >-
       {{
@@ -136,7 +116,9 @@
       }}
 
 - name: Reconcile node preferences
-  when: tailscale_prefs_drifted | bool
+  when:
+    - tailscale_prefs_drifted | bool
+    - not tailscale_dry_run | bool
   ansible.builtin.command:
     argv:
       - tailscale
@@ -151,7 +133,9 @@
 - name: Set automatic client updates
   ansible.builtin.command:
     argv: [tailscale, set, "--auto-update={{ tailscale_auto_update | bool | string | lower }}"]
-  when: >-
-    (tailscale_current_prefs.AutoUpdate.Apply | default('', true) | string | lower == 'true')
-    != (tailscale_auto_update | bool)
+  when:
+    - not tailscale_dry_run | bool
+    - >-
+      (tailscale_current_prefs.AutoUpdate.Apply | default('', true) | string | lower == 'true')
+      != (tailscale_auto_update | bool)
   changed_when: true
