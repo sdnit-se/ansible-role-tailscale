@@ -10,11 +10,17 @@ tailscale_package_state: present
 tailscale_hostname: "{{ ansible_facts['hostname'] }}"
 tailscale_tags: []
 
-# Credential, one of:
-#   tailscale_auth_key        a literal auth key or OAuth client secret
-#   tailscale_aws_secret_id   a Secrets Manager secret whose JSON holds the key
-# JSON shape: {"authKey": "..."}.
+# Credential, first non-empty wins:
+#   tailscale_auth_key            a literal auth key or OAuth client secret
+#   tailscale_federated_client_id workload identity federation: the host's own
+#                                 cloud identity (AWS instance role, GCP SA,
+#                                 GitHub) is exchanged for an auth key by
+#                                 `tailscale up --client-id --audience`
+#   tailscale_aws_secret_id       a Secrets Manager secret, JSON {"authKey": "..."}
 tailscale_auth_key: ""
+tailscale_federated_client_id: ""
+tailscale_federated_audience: ""
+tailscale_federated_params: "preauthorized=true&ephemeral=false"
 tailscale_aws_secret_id: ""
 tailscale_aws_secret_json_key: authKey
 tailscale_aws_region: ""
@@ -22,6 +28,9 @@ tailscale_aws_cli: aws
 
 # OAuth client secrets need these parameters to act as auth keys.
 tailscale_oauth_key_params: "ephemeral=false&preauthorized=true"
+
+# Re-authenticate on this run even if already running (one-off cutovers).
+tailscale_force_reauth: false
 
 # `tailscale up` options.
 tailscale_ssh: false

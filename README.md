@@ -11,7 +11,10 @@ Installs Tailscale on Debian/Ubuntu from `pkgs.tailscale.com`, joins a tailnet, 
 First non-empty wins:
 
 1. `tailscale_auth_key`: auth key or OAuth client secret.
-2. `tailscale_aws_secret_id`: Secrets Manager secret whose JSON has `tailscale_aws_secret_json_key` (default `authKey`). Host needs the AWS CLI, `secretsmanager:GetSecretValue`, `kms:Decrypt`.
+2. `tailscale_federated_client_id` + `tailscale_federated_audience`: workload identity federation. `tailscale up --client-id --audience` exchanges the host's cloud identity (AWS instance role via `sts:GetWebIdentityToken`, GCP, GitHub) for an auth key. Needs a Tailscale federated identity with scope `auth_keys` and the host's tags; nothing stored on the host. Tailscale 1.90+.
+3. `tailscale_aws_secret_id`: Secrets Manager secret whose JSON has `tailscale_aws_secret_json_key` (default `authKey`). Host needs the AWS CLI, `secretsmanager:GetSecretValue`, `kms:Decrypt`.
+
+`tailscale_force_reauth: true` re-authenticates once even if running (cutovers).
 
 `tskey-client-*` secrets get `?ephemeral=false&preauthorized=true` appended.
 
@@ -24,7 +27,7 @@ roles:
   - name: tailscale
     src: https://github.com/sdnit-se/ansible-role-tailscale.git
     scm: git
-    version: v0.1.1
+    version: v0.2.0
 ```
 
 ```yaml

@@ -3,7 +3,7 @@ galaxy_info:
   author: SDNit
   namespace: sdnit
   role_name: tailscale
-  description: Install Tailscale and enroll the host with a tag-scoped credential.
+  description: Install Tailscale and enroll the host with a tag-scoped credential or workload identity.
   license: MIT
   min_ansible_version: "2.16"
   platforms:

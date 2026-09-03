@@ -33,17 +33,28 @@
   ansible.builtin.set_fact:
     tailscale_needs_auth: >-
       {{
-        tailscale_backend_state != 'Running'
+        tailscale_force_reauth | bool
+        or tailscale_backend_state != 'Running'
         or (tailscale_tags | sort) != (tailscale_current_tags | sort)
       }}
 
+- name: Select the credential mode
+  ansible.builtin.set_fact:
+    tailscale_credential_mode: >-
+      {{
+        'key' if tailscale_auth_key | length > 0
+        else 'federated' if tailscale_federated_client_id | length > 0
+        else 'aws-secret' if tailscale_aws_secret_id | length > 0
+        else 'none'
+      }}
+
 - name: Resolve the enrollment credential
-  when: tailscale_needs_auth | bool
+  when:
+    - tailscale_needs_auth | bool
+    - tailscale_credential_mode != 'federated'
   block:
     - name: Read the credential from AWS Secrets Manager
-      when:
-        - tailscale_auth_key | length == 0
-        - tailscale_aws_secret_id | length > 0
+      when: tailscale_credential_mode == 'aws-secret'
       ansible.builtin.command:
         argv: >-
           {{
@@ -61,9 +72,9 @@
         tailscale_resolved_key: >-
           {{
             tailscale_auth_key
-            if tailscale_auth_key | length > 0
+            if tailscale_credential_mode == 'key'
             else (tailscale_secret_raw.stdout | from_json)[tailscale_aws_secret_json_key]
-            if tailscale_aws_secret_id | length > 0
+            if tailscale_credential_mode == 'aws-secret'
             else ''
           }}
       no_log: true
@@ -74,7 +85,7 @@
           - tailscale_resolved_key | length > 0
         fail_msg: >-
           The node is {{ tailscale_backend_state }} with tags {{ tailscale_current_tags }}
-          (wanted {{ tailscale_tags }}) and neither tailscale_auth_key nor tailscale_aws_secret_id yielded a credential.
+          (wanted {{ tailscale_tags }}) and no credential is configured.
         quiet: true
 
     - name: Append OAuth auth-key parameters when the credential is an OAuth client secret
@@ -92,13 +103,16 @@
     argv: >-
       {{
         ['tailscale', 'up',
-         '--auth-key=' ~ tailscale_resolved_key,
          '--hostname=' ~ tailscale_hostname,
          '--ssh=' ~ (tailscale_ssh | bool | string | lower),
          '--accept-dns=' ~ (tailscale_accept_dns | bool | string | lower),
          '--advertise-exit-node=' ~ (tailscale_advertise_exit_node | bool | string | lower),
          '--advertise-routes=' ~ (tailscale_advertise_routes | join(',')),
          '--advertise-tags=' ~ (tailscale_tags | join(','))]
+        + (['--client-id=' ~ tailscale_federated_client_id ~ ('?' ~ tailscale_federated_params if tailscale_federated_params | length > 0 else ''),
+            '--audience=' ~ tailscale_federated_audience]
+           if tailscale_credential_mode == 'federated'
+           else ['--auth-key=' ~ tailscale_resolved_key])
         + (['--force-reauth'] if tailscale_backend_state == 'Running' else [])
         + tailscale_extra_up_args
       }}
