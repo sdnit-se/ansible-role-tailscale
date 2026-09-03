@@ -23,7 +23,7 @@ tailscale_federated_audience: ""
 tailscale_federated_params: "preauthorized=true&ephemeral=false"
 tailscale_aws_secret_id: ""
 tailscale_aws_secret_json_key: authKey
-tailscale_aws_region: ""
+tailscale_aws_region: "" # required for federated mode on AWS and for Secrets Manager
 tailscale_aws_cli: aws
 
 # OAuth client secrets need these parameters to act as auth keys.

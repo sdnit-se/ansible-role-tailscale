@@ -116,6 +116,10 @@
         + (['--force-reauth'] if tailscale_backend_state == 'Running' else [])
         + tailscale_extra_up_args
       }}
+  # On AWS the client calls STS itself; GetWebIdentityToken needs a regional endpoint.
+  environment:
+    AWS_REGION: "{{ tailscale_aws_region }}"
+    AWS_DEFAULT_REGION: "{{ tailscale_aws_region }}"
   changed_when: true
   no_log: true
 
