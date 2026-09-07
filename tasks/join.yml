@@ -75,6 +75,39 @@
     - tailscale_resolved_key is not defined
   no_log: true
 
+# Tailscale 1.102 does not mint the AWS token itself and answers "federated
+# identity authkeys require --id-token", so the role mints one with the AWS
+# CLI when it is available and hands it over. STS only accepts ES384 and a
+# five-minute lifetime for this call.
+- name: Mint a web identity token for federated enrollment on AWS
+  when:
+    - tailscale_needs_auth | bool
+    - not tailscale_dry_run | bool
+    - tailscale_credential_mode == 'federated'
+    - tailscale_aws_region | length > 0
+  ansible.builtin.command:
+    argv:
+      - aws
+      - sts
+      - get-web-identity-token
+      - --audience
+      - "{{ tailscale_federated_audience }}"
+      - --signing-algorithm
+      - ES384
+      - --duration-seconds
+      - "300"
+      - --query
+      - WebIdentityToken
+      - --output
+      - text
+  environment:
+    AWS_REGION: "{{ tailscale_aws_region }}"
+    AWS_DEFAULT_REGION: "{{ tailscale_aws_region }}"
+  register: tailscale_web_identity_token
+  changed_when: false
+  failed_when: false
+  no_log: true
+
 - name: Authenticate to the tailnet
   when:
     - tailscale_needs_auth | bool
@@ -91,6 +124,11 @@
          '--advertise-tags=' ~ (tailscale_tags | join(','))]
         + (['--client-id=' ~ tailscale_federated_client_id ~ ('?' ~ tailscale_federated_params if tailscale_federated_params | length > 0 else ''),
             '--audience=' ~ tailscale_federated_audience]
+           + (['--id-token=' ~ tailscale_web_identity_token.stdout | trim]
+              if tailscale_web_identity_token is defined
+                 and tailscale_web_identity_token.rc | default(1) == 0
+                 and (tailscale_web_identity_token.stdout | default('')) is match('^ey')
+              else [])
            if tailscale_credential_mode == 'federated'
            else ['--auth-key=' ~ tailscale_resolved_key])
         + (['--force-reauth'] if tailscale_backend_state == 'Running' else [])
