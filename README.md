@@ -11,7 +11,7 @@ Installs Tailscale on Debian/Ubuntu from `pkgs.tailscale.com`, joins a tailnet, 
 First non-empty wins:
 
 1. `tailscale_auth_key`: auth key or OAuth client secret.
-2. `tailscale_federated_client_id` + `tailscale_federated_audience`: workload identity federation. `tailscale up --client-id --audience` exchanges the host's cloud identity (AWS instance role via `sts:GetWebIdentityToken`, GCP, GitHub) for an auth key. Needs a Tailscale federated identity with scope `auth_keys` and the host's tags; nothing stored on the host. Tailscale 1.90+. On AWS set `tailscale_aws_region`.
+2. `tailscale_federated_client_id` + `tailscale_federated_audience`: workload identity federation. `tailscale up --client-id --audience` exchanges the host's cloud identity (AWS instance role via `sts:GetWebIdentityToken`, GCP, GitHub) for an auth key. Needs a Tailscale federated identity with scope `auth_keys` and the host's tags; nothing stored on the host. Tailscale 1.90+. On AWS set `tailscale_aws_region`; when the AWS CLI is on the host the role mints the token itself (`sts get-web-identity-token`, ES384, 300 s) and passes `--id-token`, which Tailscale 1.102 requires.
 
 `tailscale_force_reauth: true` re-authenticates once even if running (cutovers).
 `tailscale_dry_run: true` changes nothing and still validates the node.
